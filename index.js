@@ -1,19 +1,40 @@
- const containerNotas = document.getElementById('container-notas');
+const containerNotas = document.getElementById('container-notas');
         const botaoCriarNota = document.getElementById('criar-nota');
         const cores = ['#F44336', '#4CAF50', '#2196F3', '#FFEB3B', '#9C27B0', '#FF5722', '#E91E63', '#009688', '#FFFFFF'];
         let notas = [];
+        let editingNotaId = null;
 
-        function criarNota() {
+        // Função para carregar as notas do LocalStorage
+        function carregarNotas() {
+            const notasSalvas = localStorage.getItem('notas');
+            if (notasSalvas) {
+                notas = JSON.parse(notasSalvas);
+                notas.forEach(notaData => {
+                    const novaNota = criarNota(notaData);
+                    containerNotas.appendChild(novaNota);
+                });
+            }
+        }
+
+        // Função para salvar as notas no LocalStorage
+        function salvarNotas() {
+            const notasSalvas = JSON.stringify(notas);
+            localStorage.setItem('notas', notasSalvas);
+        }
+
+        function criarNota(notaData) {
             const novaNota = document.createElement('div');
             novaNota.className = 'bloco-nota';
 
             const tituloNota = document.createElement('input');
             tituloNota.type = 'text';
-            tituloNota.value = '';
+            tituloNota.value = notaData ? notaData.titulo : '';
             tituloNota.placeholder = 'Título da Nota';
 
             const textoNota = document.createElement('textarea');
             textoNota.placeholder = 'Digite seu texto aqui...';
+            textoNota.addEventListener('input', autoResize, false);
+            textoNota.value = notaData ? notaData.texto : '';
 
             const blocoNotaBotoes = document.createElement('div');
             blocoNotaBotoes.className = 'bloco-nota-botoes';
@@ -27,7 +48,6 @@
 
             const dropdownCores = document.createElement('div');
             dropdownCores.className = 'dropdown-cores';
-
             cores.forEach(cor => {
                 const botaoCor = document.createElement('button');
                 botaoCor.className = 'botao-cor';
@@ -50,6 +70,13 @@
                     botaoSelecionarCor.style.backgroundColor = corSelecionada;
                     botaoSelecionarCor.classList.add('cor-selecionada');
                     dropdownCores.classList.remove('mostrar');
+                     // Salva a cor ao mudar
+                    const notaId = novaNota.id;
+                    const notaIndex = notas.findIndex(n => n.id === notaId);
+                    if (notaIndex !== -1) {
+                        notas[notaIndex].cor = corSelecionada;
+                        salvarNotas();
+                    }
                 });
                 dropdownCores.appendChild(botaoCor);
             });
@@ -59,6 +86,7 @@
             botaoDeletar.addEventListener('click', () => {
                 novaNota.remove();
                 notas = notas.filter(n => n.id !== novaNota.id);
+                salvarNotas(); // Salva ao deletar
                 reorganizarNotas();
             });
 
@@ -71,21 +99,35 @@
             novaNota.appendChild(blocoNotaBotoes);
             containerNotas.appendChild(novaNota);
 
-            novaNota.id = `nota-${Date.now()}`;
-            notas.push({
-                id: novaNota.id,
-                x: 0,
-                y: 0,
-                element: novaNota,
-                zIndex: 1,
-            });
+             if (notaData) {
+                novaNota.id = notaData.id;
+                novaNota.style.left = `${notaData.x}px`;
+                novaNota.style.top = `${notaData.y}px`;
+                novaNota.style.backgroundColor = notaData.cor || 'white';
+                botaoSelecionarCor.style.backgroundColor = notaData.cor || 'white';
+                if(notaData.cor) {
+                    botaoSelecionarCor.classList.add('cor-selecionada');
+                }
+            } else {
+                 novaNota.id = `nota-${Date.now()}`;
+                  notas.push({
+                    id: novaNota.id,
+                    x: 0,
+                    y: 0,
+                    element: novaNota,
+                    zIndex: 1,
+                    titulo: '',
+                    texto: '',
+                    cor: 'white', // Cor padrão
+                });
+            }
 
             iniciarArrastavel(novaNota);
             return novaNota;
         }
 
         function iniciarArrastavel(element) {
-            interact(element).draggable({
+             interact(element).draggable({
                 inertia: true,
                 modifiers: [
                     interact.modifiers.restrictRect({
@@ -93,11 +135,10 @@
                         endOnly: true,
                     }),
                 ],
-                onbeforestart: (event) => {
+                onstart: (event) => {
                     const target = event.target;
                     target.setAttribute('data-x', target.getAttribute('data-x') || '0');
                     target.setAttribute('data-y', target.getAttribute('data-y') || '0');
-                    // Bring the dragged element to the front
                     target.style.zIndex = 1000;
                     notas.forEach(nota => {
                         if (nota.element !== target) {
@@ -120,10 +161,11 @@
                     const y = parseFloat(target.getAttribute('data-y')) || 0;
                     const id = target.id;
 
-                    const nota = notas.find((n) => n.id === id);
-                    if (nota) {
-                        nota.x = x;
-                        nota.y = y;
+                    const notaIndex = notas.findIndex(n => n.id === id);
+                    if (notaIndex !== -1) {
+                        notas[notaIndex].x = x;
+                        notas[notaIndex].y = y;
+                        salvarNotas(); // Salva a posição ao arrastar
                     }
                     reposicionarNotas(target);
                 },
@@ -172,9 +214,6 @@
                 draggedNota.x = displacedNota.x;
                 draggedNota.y = displacedNota.y;
 
-                displacedNota.x = tempX;
-                displacedNota.y = tempY;
-
                 draggedElement.style.transform = `translate(${draggedNota.x}px, ${draggedNota.y}px)`;
                 displacedElement.style.transform = `translate(${displacedNota.x}px, ${displacedNota.y}px)`;
 
@@ -186,11 +225,29 @@
         }
 
         window.addEventListener('resize', () => {
-            notas.forEach(nota => {
+             notas.forEach(nota => {
                 nota.element.style.transform = `translate(${nota.x}px, ${nota.y}px)`;
             });
         });
 
         botaoCriarNota.addEventListener('click', () => {
-            criarNota();
+            const novaNota = criarNota(null);
+            containerNotas.appendChild(novaNota);
+            salvarNotas();
         });
+
+        function autoResize(event) {
+            const textarea = event.target;
+            textarea.style.height = 'auto';
+            textarea.style.height = `${textarea.scrollHeight}px`;
+             // Salva o texto ao digitar
+            const notaId = textarea.closest('.bloco-nota').id;
+            const notaIndex = notas.findIndex(n => n.id === notaId);
+            if (notaIndex !== -1) {
+                notas[notaIndex].texto = textarea.value;
+                salvarNotas();
+            }
+        }
+
+        // Carrega as notas ao iniciar a página
+        carregarNotas();
